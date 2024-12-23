@@ -226,7 +226,7 @@ namespace WheresMyPluginsAt
 
                     plugin.LastMessage = mergeResult.Status == MergeStatus.UpToDate
                         ? "Already up to date"
-                        : $"Updated to {mergeResult.Commit.Id}";
+                        : $"Updated to {mergeResult.Commit.Id.Sha[..7]}";
 
                     plugin.CurrentCommit = repo.Head.Tip.Sha[..7];
                     plugin.LatestCommit = trackingBranch.Tip.Sha[..7];
@@ -253,12 +253,27 @@ namespace WheresMyPluginsAt
             });
         }
 
-        public async Task CloneRepositoryAsync(string repoUrl)
+        private static string ExtractRepoNameAndBranch(string repoUrl, out string branch)
         {
-            string repoName = Path.GetFileNameWithoutExtension(repoUrl.TrimEnd('/'));
+            branch = null;
 
+            int treeIndex = repoUrl.IndexOf("/tree/");
+            if (treeIndex != -1)
+            {
+                branch = repoUrl[(treeIndex + 6)..];
+                repoUrl = repoUrl[..treeIndex];
+            }
+
+            string repoName = Path.GetFileNameWithoutExtension(repoUrl.TrimEnd('/'));
             if (string.IsNullOrEmpty(repoName))
                 repoName = repoUrl.Split('/').Last().Replace(".git", "");
+
+            return repoName;
+        }
+
+        public async Task CloneRepositoryAsync(string repoUrl)
+        {
+            string repoName = ExtractRepoNameAndBranch(repoUrl, out string branch);
 
             string targetPath = Path.Combine(_pluginFolder, repoName);
 
@@ -281,21 +296,41 @@ namespace WheresMyPluginsAt
                     };
                     cloneOptions.FetchOptions.CredentialsProvider = fetchOptions.CredentialsProvider;
 
-                    Repository.Clone(repoUrl, targetPath, cloneOptions);
-
-                    using var repo = new Repository(targetPath);
-                    var pluginInfo = new PluginInfo
+                    string cleanUrl = repoUrl;
+                    int treeIndex = cleanUrl.IndexOf("/tree/");
+                    if (treeIndex != -1)
                     {
-                        Name = repoName,
-                        CurrentCommit = repo.Head.Tip.Sha[..7]
-                    };
+                        cleanUrl = cleanUrl[..treeIndex];
+                        if (!cleanUrl.EndsWith(".git"))
+                            cleanUrl += ".git";
+                    }
 
-                    var trackingBranch = repo.Head.TrackedBranch;
-                    if (trackingBranch != null)
-                        pluginInfo.LatestCommit = trackingBranch.Tip.Sha[..7];
+                    Repository.Clone(cleanUrl, targetPath, cloneOptions);
 
-                    lock (_pluginInfo)
-                        _pluginInfo.Add(pluginInfo);
+                    if (!string.IsNullOrEmpty(branch))
+                    {
+                        using (var branchRepo = new Repository(targetPath))
+                        {
+                            var targetBranch = branchRepo.Branches[$"origin/{branch}"] ?? throw new Exception($"Branch '{branch}' not found in repository");
+                            Commands.Checkout(branchRepo, targetBranch);
+                        }
+                    }
+
+                    using (var finalRepo = new Repository(targetPath))
+                    {
+                        var pluginInfo = new PluginInfo
+                        {
+                            Name = repoName,
+                            CurrentCommit = finalRepo.Head.Tip.Sha[..7]
+                        };
+
+                        var trackingBranch = finalRepo.Head.TrackedBranch;
+                        if (trackingBranch != null)
+                            pluginInfo.LatestCommit = trackingBranch.Tip.Sha[..7];
+
+                        lock (_pluginInfo)
+                            _pluginInfo.Add(pluginInfo);
+                    }
                 }
                 catch (Exception)
                 {
