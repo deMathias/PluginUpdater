@@ -1,7 +1,7 @@
 ﻿using ExileCore2;
+using LibGit2Sharp;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -29,87 +29,19 @@ namespace WheresMyPluginsAt
         public event Action<int, int> ProgressChanged;
         private void ReportProgress(int current, int total) => ProgressChanged?.Invoke(current, total);
 
-        private IEnumerable<string> GetPluginsWithGit()
-        {
-            return Directory.GetDirectories(_pluginFolder)
-                .Where(dir => Directory.Exists(Path.Combine(dir, ".git")));
-        }
+        private IEnumerable<string> GetPluginsWithGit() =>
+            Directory.GetDirectories(_pluginFolder).Where(dir => Directory.Exists(Path.Combine(dir, ".git")));
 
-        public IEnumerable<string> GetManualDownloadedPlugins()
-        {
-            return Directory.GetDirectories(_pluginFolder)
-                .Where(dir => !Directory.Exists(Path.Combine(dir, ".git")));
-        }
+        public IEnumerable<string> GetManualDownloadedPlugins() =>
+            Directory.GetDirectories(_pluginFolder).Where(dir => !Directory.Exists(Path.Combine(dir, ".git")));
 
         public GitUpdater(string pluginFolder)
         {
             _pluginFolder = pluginFolder;
-
             var folders = GetPluginsWithGit();
             foreach (var folder in folders)
             {
-                var pluginInfo = new PluginInfo
-                {
-                    Name = Path.GetFileName(folder)
-                };
-                _pluginInfo.Add(pluginInfo);
-            }
-        }
-
-        private static async Task<string> ExecuteGitCommandAsync(string command, string workingDirectory, CancellationToken cancellationToken)
-        {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "git",
-                Arguments = command,
-                WorkingDirectory = workingDirectory,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            using var process = new Process { StartInfo = startInfo };
-            try
-            {
-                process.Start();
-
-                var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-                var processExitTask = Task.Run(() =>
-                {
-                    process.WaitForExit();
-                }, cancellationToken);
-
-                await Task.WhenAny(processExitTask, Task.Delay(-1, cancellationToken));
-
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    try
-                    {
-                        if (!process.HasExited)
-                        {
-                            process.Kill();
-                        }
-                    }
-                    catch (InvalidOperationException) { }
-
-                    cancellationToken.ThrowIfCancellationRequested();
-                }
-
-                string output = await outputTask;
-                return output.Trim();
-            }
-            catch (OperationCanceledException)
-            {
-                if (!process.HasExited)
-                {
-                    try
-                    {
-                        process.Kill();
-                    }
-                    catch (InvalidOperationException) { }
-                }
-                throw;
+                _pluginInfo.Add(new PluginInfo { Name = Path.GetFileName(folder) });
             }
         }
 
@@ -170,31 +102,36 @@ namespace WheresMyPluginsAt
 
                 try
                 {
-                    var pluginInfo = new PluginInfo
+                    var pluginInfo = new PluginInfo { Name = Path.GetFileName(folder) };
+
+                    await Task.Run(() =>
                     {
-                        Name = Path.GetFileName(folder)
-                    };
+                        using var repo = new Repository(folder);
+                        pluginInfo.CurrentCommit = repo.Head.Tip.Sha[..7];
 
-                    string currentCommit = await ExecuteGitCommandAsync("log -1 --format=\"%h\"", folder, cancellationToken);
-                    pluginInfo.CurrentCommit = currentCommit;
+                        var remote = repo.Network.Remotes["origin"];
+                        var refSpecs = remote.FetchRefSpecs.Select(r => r.Specification);
 
-                    await ExecuteGitCommandAsync("fetch", folder, cancellationToken);
-
-                    string currentBranch = await ExecuteGitCommandAsync("branch --show-current", folder, cancellationToken);
-                    string trackingBranch = await ExecuteGitCommandAsync($"rev-parse --abbrev-ref {currentBranch}@{{u}}", folder, cancellationToken);
-                    string latestCommit = await ExecuteGitCommandAsync($"log -1 --format=\"%h\" {trackingBranch}", folder, cancellationToken);
-
-                    pluginInfo.LatestCommit = latestCommit;
-
-                    if (currentCommit != latestCommit)
-                    {
-                        string behindAhead = await ExecuteGitCommandAsync($"rev-list --left-right --count {currentBranch}...{trackingBranch}", folder, cancellationToken);
-                        string[] counts = behindAhead.Split('\t');
-                        if (counts.Length == 2)
+                        var fetchOptions = new FetchOptions
                         {
-                            pluginInfo.BehindAhead = $"{counts[0]} behind, {counts[1]} ahead";
+                            CredentialsProvider = (_url, _user, _cred) => new DefaultCredentials()
+                        };
+
+                        Commands.Fetch(repo, remote.Name, refSpecs, fetchOptions, null);
+
+                        var trackingBranch = repo.Head.TrackedBranch;
+                        if (trackingBranch != null)
+                        {
+                            pluginInfo.LatestCommit = trackingBranch.Tip.Sha[..7];
+
+                            if (pluginInfo.CurrentCommit != pluginInfo.LatestCommit)
+                            {
+                                var ahead = repo.Head.TrackingDetails.AheadBy ?? 0;
+                                var behind = repo.Head.TrackingDetails.BehindBy ?? 0;
+                                pluginInfo.BehindAhead = $"{behind} behind, {ahead} ahead";
+                            }
                         }
-                    }
+                    }, cancellationToken);
 
                     lock (_pluginInfo)
                     {
@@ -224,90 +161,96 @@ namespace WheresMyPluginsAt
         public async Task RevertPluginAsync(string pluginName)
         {
             var folder = GetPluginsWithGit().FirstOrDefault(f => f.Contains(pluginName));
-            if (folder == null)
-            {
-                return;
-            }
+            if (folder == null) return;
 
             var plugin = _pluginInfo.FirstOrDefault(p => p.Name == pluginName);
-            if (plugin == null)
+            if (plugin == null) return;
+
+            await Task.Run(() =>
             {
-                return;
-            }
-
-            try
-            {
-                using var cts = new CancellationTokenSource();
-
-                string currentBranch = await ExecuteGitCommandAsync("branch --show-current", folder, cts.Token);
-                plugin.LastMessage = await ExecuteGitCommandAsync("reset --hard HEAD~1", folder, cts.Token);
-                plugin.CurrentCommit = await ExecuteGitCommandAsync("log -1 --format=\"%h\"", folder, cts.Token);
-
-                string trackingBranch = await ExecuteGitCommandAsync($"rev-parse --abbrev-ref {currentBranch}@{{u}}", folder, cts.Token);
-                string behindAhead = await ExecuteGitCommandAsync($"rev-list --left-right --count {currentBranch}...{trackingBranch}", folder, cts.Token);
-                string[] counts = behindAhead.Split('\t');
-                if (counts.Length == 2)
+                try
                 {
-                    plugin.BehindAhead = $"{counts[0]} behind, {counts[1]} ahead";
-                }
+                    using var repo = new Repository(folder);
+                    var currentBranch = repo.Head;
+                    var parent = repo.Head.Tip.Parents.FirstOrDefault() ?? throw new Exception("Cannot revert: no parent commit found");
+                    repo.Reset(ResetMode.Hard, parent);
+                    plugin.LastMessage = $"Reset to parent commit {parent.Sha[..7]}";
+                    plugin.CurrentCommit = parent.Sha[..7];
 
-                DebugWindow.LogMsg($"{folder} reverted to {plugin.CurrentCommit}");
-                DebugWindow.LogMsg(plugin.LastMessage);
-            }
-            catch (Exception ex)
-            {
-                string errorMsg = $"Error reverting plugin {pluginName}: {ex.Message}";
-                DebugWindow.LogError(errorMsg);
-                throw;
-            }
+                    var trackingBranch = currentBranch.TrackedBranch;
+                    if (trackingBranch != null)
+                    {
+                        var ahead = repo.Head.TrackingDetails.AheadBy ?? 0;
+                        var behind = repo.Head.TrackingDetails.BehindBy ?? 0;
+                        plugin.BehindAhead = $"{behind} behind, {ahead} ahead";
+                    }
+
+                    DebugWindow.LogMsg($"{folder} reverted to {plugin.CurrentCommit}");
+                    DebugWindow.LogMsg(plugin.LastMessage);
+                }
+                catch (Exception ex)
+                {
+                    string errorMsg = $"Error reverting plugin {pluginName}: {ex.Message}";
+                    DebugWindow.LogError(errorMsg);
+                    throw;
+                }
+            });
         }
 
         public async Task UpdatePluginAsync(string pluginName)
         {
             var folder = GetPluginsWithGit().FirstOrDefault(f => f.Contains(pluginName));
-            if (folder == null)
-            {
-                return;
-            }
+            if (folder == null) return;
 
             var plugin = _pluginInfo.FirstOrDefault(p => p.Name == pluginName);
-            if (plugin == null)
+            if (plugin == null) return;
+
+            await Task.Run(() =>
             {
-                return;
-            }
-
-            try
-            {
-                using var cts = new CancellationTokenSource();
-                plugin.LastMessage = await ExecuteGitCommandAsync("pull", folder, cts.Token);
-
-                plugin.CurrentCommit = await ExecuteGitCommandAsync("log -1 --format=\"%h\"", folder, cts.Token);
-                string currentBranch = await ExecuteGitCommandAsync("branch --show-current", folder, cts.Token);
-                string trackingBranch = await ExecuteGitCommandAsync($"rev-parse --abbrev-ref {currentBranch}@{{u}}", folder, cts.Token);
-                plugin.LatestCommit = await ExecuteGitCommandAsync($"log -1 --format=\"%h\" {trackingBranch}", folder, cts.Token);
-
-                if (plugin.CurrentCommit != plugin.LatestCommit)
+                try
                 {
-                    string behindAhead = await ExecuteGitCommandAsync($"rev-list --left-right --count {currentBranch}...{trackingBranch}", folder, cts.Token);
-                    string[] counts = behindAhead.Split('\t');
-                    if (counts.Length == 2)
+                    using var repo = new Repository(folder);
+
+                    var remote = repo.Network.Remotes["origin"];
+                    var refSpecs = remote.FetchRefSpecs.Select(r => r.Specification);
+                    Commands.Fetch(repo, remote.Name, refSpecs, new FetchOptions
                     {
-                        plugin.BehindAhead = $"{counts[0]} behind, {counts[1]} ahead";
-                    }
-                }
-                else
-                {
-                    plugin.BehindAhead = "";
-                }
+                        CredentialsProvider = (_url, _user, _cred) => new DefaultCredentials()
+                    }, null);
 
-                DebugWindow.LogMsg($"{folder} updated to {plugin.CurrentCommit}");
-                DebugWindow.LogMsg(plugin.LastMessage);
-            }
-            catch (Exception ex)
-            {
-                DebugWindow.LogError($"Error updating plugin {pluginName}: {ex.Message}");
-                throw;
-            }
+                    var trackingBranch = repo.Head.TrackedBranch ?? throw new Exception("No tracking branch found");
+                    var mergeResult = Commands.Pull(
+                        repo,
+                        new Signature("Plugin Updater", "updater@local", DateTimeOffset.Now),
+                        new PullOptions());
+
+                    plugin.LastMessage = mergeResult.Status == MergeStatus.UpToDate
+                        ? "Already up to date"
+                        : $"Merged {mergeResult.Status}";
+
+                    plugin.CurrentCommit = repo.Head.Tip.Sha[..7];
+                    plugin.LatestCommit = trackingBranch.Tip.Sha[..7];
+
+                    if (plugin.CurrentCommit != plugin.LatestCommit)
+                    {
+                        var ahead = repo.Head.TrackingDetails.AheadBy ?? 0;
+                        var behind = repo.Head.TrackingDetails.BehindBy ?? 0;
+                        plugin.BehindAhead = $"{behind} behind, {ahead} ahead";
+                    }
+                    else
+                    {
+                        plugin.BehindAhead = "";
+                    }
+
+                    DebugWindow.LogMsg($"{folder} updated to {plugin.CurrentCommit}");
+                    DebugWindow.LogMsg(plugin.LastMessage);
+                }
+                catch (Exception ex)
+                {
+                    DebugWindow.LogError($"Error updating plugin {pluginName}: {ex.Message}");
+                    throw;
+                }
+            });
         }
 
         public async Task CloneRepositoryAsync(string repoUrl)
@@ -315,53 +258,55 @@ namespace WheresMyPluginsAt
             string repoName = Path.GetFileNameWithoutExtension(repoUrl.TrimEnd('/'));
 
             if (string.IsNullOrEmpty(repoName))
-            {
                 repoName = repoUrl.Split('/').Last().Replace(".git", "");
-            }
 
             string targetPath = Path.Combine(_pluginFolder, repoName);
 
             if (Directory.Exists(targetPath))
-            {
                 throw new InvalidOperationException($"A plugin with the name {repoName} already exists");
-            }
 
-            try
+            await Task.Run(() =>
             {
-                using var cts = new CancellationTokenSource();
-                string output = await ExecuteGitCommandAsync($"clone {repoUrl}", _pluginFolder, cts.Token);
-
-                var pluginInfo = new PluginInfo
+                try
                 {
-                    Name = repoName
-                };
-
-                string currentCommit = await ExecuteGitCommandAsync("log -1 --format=\"%h\"", targetPath, cts.Token);
-                pluginInfo.CurrentCommit = currentCommit;
-
-                string currentBranch = await ExecuteGitCommandAsync("branch --show-current", targetPath, cts.Token);
-                string trackingBranch = await ExecuteGitCommandAsync($"rev-parse --abbrev-ref {currentBranch}@{{u}}", targetPath, cts.Token);
-                pluginInfo.LatestCommit = await ExecuteGitCommandAsync($"log -1 --format=\"%h\" {trackingBranch}", targetPath, cts.Token);
-
-                lock (_pluginInfo)
-                {
-                    _pluginInfo.Add(pluginInfo);
-                }
-
-                return;
-            }
-            catch (Exception)
-            {
-                if (Directory.Exists(targetPath))
-                {
-                    try
+                    var fetchOptions = new FetchOptions
                     {
-                        Directory.Delete(targetPath, true);
-                    }
-                    catch { }
+                        CredentialsProvider = (_url, _user, _cred) => new DefaultCredentials()
+                    };
+
+                    var cloneOptions = new CloneOptions
+                    {
+                        IsBare = false,
+                        Checkout = true
+                    };
+                    cloneOptions.FetchOptions.CredentialsProvider = fetchOptions.CredentialsProvider;
+
+                    Repository.Clone(repoUrl, targetPath, cloneOptions);
+
+                    using var repo = new Repository(targetPath);
+                    var pluginInfo = new PluginInfo
+                    {
+                        Name = repoName,
+                        CurrentCommit = repo.Head.Tip.Sha[..7]
+                    };
+
+                    var trackingBranch = repo.Head.TrackedBranch;
+                    if (trackingBranch != null)
+                        pluginInfo.LatestCommit = trackingBranch.Tip.Sha[..7];
+
+                    lock (_pluginInfo)
+                        _pluginInfo.Add(pluginInfo);
                 }
-                throw;
-            }
+                catch (Exception)
+                {
+                    if (Directory.Exists(targetPath))
+                    {
+                        try { Directory.Delete(targetPath, true); }
+                        catch { }
+                    }
+                    throw;
+                }
+            });
         }
 
         public void DeletePlugin(string pluginName)
@@ -369,44 +314,29 @@ namespace WheresMyPluginsAt
             var pluginPath = Path.Combine(_pluginFolder, pluginName);
 
             if (!Directory.Exists(pluginPath))
-            {
                 throw new DirectoryNotFoundException($"Plugin directory not found: {pluginPath}");
-            }
 
             try
             {
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
 
-                foreach (var process in System.Diagnostics.Process.GetProcessesByName("git"))
-                {
-                    if (process.MainModule?.FileName != null &&
-                        process.MainModule.FileName.Contains(pluginPath, StringComparison.OrdinalIgnoreCase))
-                    {
-                        process.Kill();
-                        process.WaitForExit();
-                    }
-                }
+                using (var repo = new Repository(pluginPath)) { }
 
                 foreach (var file in Directory.GetFiles(pluginPath, "*.*", SearchOption.AllDirectories))
-                {
                     File.SetAttributes(file, FileAttributes.Normal);
-                }
 
                 foreach (var dir in Directory.GetDirectories(pluginPath, "*", SearchOption.AllDirectories))
-                {
                     File.SetAttributes(dir, FileAttributes.Normal);
-                }
 
                 Directory.Delete(pluginPath, true);
 
                 lock (_pluginInfo)
                 {
-                    var plugin = _pluginInfo.FirstOrDefault(p => p.Name.Equals(pluginName, StringComparison.OrdinalIgnoreCase));
+                    var plugin = _pluginInfo.FirstOrDefault(p =>
+                        p.Name.Equals(pluginName, StringComparison.OrdinalIgnoreCase));
                     if (plugin != null)
-                    {
                         _pluginInfo.Remove(plugin);
-                    }
                 }
             }
             catch (Exception ex)
@@ -418,9 +348,7 @@ namespace WheresMyPluginsAt
         public List<PluginInfo> GetPluginInfo()
         {
             lock (_pluginInfo)
-            {
                 return new List<PluginInfo>(_pluginInfo);
-            }
         }
 
         public void Dispose()

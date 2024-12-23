@@ -489,6 +489,11 @@ namespace WheresMyPluginsAt
             }
         }
 
+        private static readonly System.Text.Json.JsonSerializerOptions _serializerOptions = new()
+        {
+            PropertyNameCaseInsensitive = true
+        };
+
         private async Task LoadRepositoriesAsync()
         {
             if (_isLoadingRepos || _hasLoadedRepos) return;
@@ -503,10 +508,7 @@ namespace WheresMyPluginsAt
 
                 var repoData = System.Text.Json.JsonSerializer.Deserialize<PluginRepositoryData>(
                     response,
-                    new System.Text.Json.JsonSerializerOptions
-                    {
-                        PropertyNameCaseInsensitive = true
-                    }
+                    _serializerOptions
                 );
 
                 _availablePlugins.Clear();
