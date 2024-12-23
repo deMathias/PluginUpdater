@@ -10,6 +10,42 @@ using System.Threading.Tasks;
 
 namespace WheresMyPluginsAt
 {
+    public class PluginRepositoryData
+    {
+        public List<PluginDescription> PluginDescriptions { get; set; }
+    }
+
+    public class PluginDescription
+    {
+        public string Name { get; set; }
+        public string OriginalAuthor { get; set; }
+        public List<Fork> Forks { get; set; }
+        public string Description { get; set; }
+        public string EndorsedAuthor { get; set; }
+    }
+
+    public class Fork
+    {
+        public string Author { get; set; }
+        public string Location { get; set; }
+        public string Name { get; set; }
+        public LatestCommit LatestCommit { get; set; }
+        public List<Release> Releases { get; set; }
+    }
+
+    public class LatestCommit
+    {
+        public string Message { get; set; }
+        public string Hash { get; set; }
+        public string Author { get; set; }
+        public string Date { get; set; }
+    }
+
+    public class Release
+    {
+        // the output.json has no data in releases so not sure structure xd
+    }
+
     [Submenu(RenderMethod = nameof(Render))]
     public class PluginRenderer : IDisposable
     {
@@ -26,7 +62,7 @@ namespace WheresMyPluginsAt
         private readonly object _logLock = new();
         private string _repoUrl = string.Empty;
         private bool _isCloning;
-        private readonly List<(string Name, string CloneUrl)> _availablePlugins = new();
+        private readonly List<PluginDescription> _availablePlugins = new();
         private readonly Dictionary<string, bool> _downloadingPlugins = [];
         private bool _isLoadingRepos;
         private bool _hasLoadedRepos;
@@ -463,31 +499,28 @@ namespace WheresMyPluginsAt
                 _loadError = string.Empty;
 
                 using var client = new System.Net.Http.HttpClient();
-                client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
-                client.DefaultRequestHeaders.UserAgent.Add(new System.Net.Http.Headers.ProductInfoHeaderValue("WheresMyPluginsAt", "1.0"));
+                var response = await client.GetStringAsync("https://raw.githubusercontent.com/exCore2/PluginBrowserData/refs/heads/data/output.json");
 
-                var response = await client.GetStringAsync("https://api.github.com/orgs/exCore2/repos");
-
-                using var document = System.Text.Json.JsonDocument.Parse(response);
-                var repos = document.RootElement.EnumerateArray();
+                var repoData = System.Text.Json.JsonSerializer.Deserialize<PluginRepositoryData>(
+                    response,
+                    new System.Text.Json.JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    }
+                );
 
                 _availablePlugins.Clear();
-                foreach (var repo in repos)
+                if (repoData?.PluginDescriptions != null)
                 {
-                    var name = repo.GetProperty("name").GetString();
-                    var cloneUrl = repo.GetProperty("clone_url").GetString();
-
-                    if (!string.IsNullOrEmpty(name) && !string.IsNullOrEmpty(cloneUrl))
-                    {
-                        _availablePlugins.Add((name, cloneUrl));
-                    }
+                    _availablePlugins.AddRange(repoData.PluginDescriptions);
                 }
 
                 _hasLoadedRepos = true;
+                consoleLog.LogSuccess($"Successfully loaded {_availablePlugins.Count} plugins");
             }
             catch (Exception ex)
             {
-                _loadError = $"Error loading repositories: {ex.Message}";
+                _loadError = $"Error loading plugins: {ex.Message}";
                 consoleLog.LogError(_loadError);
             }
             finally
@@ -503,7 +536,7 @@ namespace WheresMyPluginsAt
                 _ = LoadRepositoriesAsync();
             }
 
-            ImGui.TextWrapped("Browse and download available plugins from the ExileCore2 repo");
+            ImGui.TextWrapped("Browse and download available plugins for ExileCore2");
             ImGui.Spacing();
 
             if (_isLoadingRepos)
@@ -531,9 +564,10 @@ namespace WheresMyPluginsAt
                             ImGuiTableFlags.Resizable |
                             ImGuiTableFlags.SizingFixedFit |
                             ImGuiTableFlags.ScrollY |
-                            ImGuiTableFlags.RowBg;
+                            ImGuiTableFlags.RowBg |
+                            ImGuiTableFlags.Hideable;
 
-            const float ROW_HEIGHT = 25;
+            const float ROW_HEIGHT = 30;
             const float HEADER_HEIGHT = 30;
             var installedPlugins = updater.GetPluginInfo();
             var availablePlugins = _availablePlugins.Where(p =>
@@ -545,27 +579,52 @@ namespace WheresMyPluginsAt
                 ImGui.TextColored(new System.Numerics.Vector4(0.2f, 1.0f, 0.2f, 1.0f),
                     _availablePlugins.Count > 0
                         ? "All available plugins are already installed!"
-                        : "No plugins found in the ExileCore2 repo.");
+                        : "No plugins found in the repository.");
                 return;
             }
 
             float tableHeight = (availablePlugins.Count * ROW_HEIGHT) + HEADER_HEIGHT;
 
-            if (!ImGui.BeginTable("##browsertable", 2, tableFlags, new System.Numerics.Vector2(-1, tableHeight)))
+            if (!ImGui.BeginTable("##browsertable", 6, tableFlags, new System.Numerics.Vector2(-1, tableHeight)))
                 return;
 
             ImGui.TableSetupColumn("Plugin", ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn("Description", ImGuiTableColumnFlags.WidthStretch, 2.0f);
+            ImGui.TableSetupColumn("Original Author", ImGuiTableColumnFlags.WidthFixed, 100f);
+            ImGui.TableSetupColumn("Endorsed Fork", ImGuiTableColumnFlags.WidthFixed, 100f);
+            ImGui.TableSetupColumn("Last Updated", ImGuiTableColumnFlags.WidthFixed, 100f);
             ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed, 100f);
             ImGui.TableHeadersRow();
 
             foreach (var plugin in availablePlugins)
             {
                 ImGui.TableNextRow();
-                ImGui.TableNextColumn();
 
+                ImGui.TableNextColumn();
                 ImGui.Text(plugin.Name);
-                ImGui.TableNextColumn();
 
+                ImGui.TableNextColumn();
+                ImGui.TextWrapped(string.IsNullOrEmpty(plugin.Description) ? "-" : plugin.Description);
+
+                ImGui.TableNextColumn();
+                ImGui.Text(string.IsNullOrEmpty(plugin.OriginalAuthor) ? "-" : plugin.OriginalAuthor);
+
+                ImGui.TableNextColumn();
+                ImGui.Text(string.IsNullOrEmpty(plugin.EndorsedAuthor) ? "-" : plugin.EndorsedAuthor);
+
+                var endorsedFork = string.IsNullOrWhiteSpace(plugin.EndorsedAuthor)
+                    ? plugin.Forks?.FirstOrDefault()
+                    : plugin.Forks?.FirstOrDefault(f => f.Author == plugin.EndorsedAuthor);
+
+                ImGui.TableNextColumn();
+                var lastUpdated = endorsedFork?.LatestCommit?.Date ?? "-";
+                if (lastUpdated != "-")
+                {
+                    lastUpdated = DateTime.Parse(lastUpdated).ToString("yyyy-MM-dd");
+                }
+                ImGui.Text(lastUpdated);
+
+                ImGui.TableNextColumn();
                 bool isDownloading = _downloadingPlugins.TryGetValue(plugin.Name, out bool downloading) && downloading;
 
                 if (isDownloading)
@@ -580,9 +639,18 @@ namespace WheresMyPluginsAt
                     ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new System.Numerics.Vector4(0, 0.7f, 0, 1.0f));
                     ImGui.PushStyleColor(ImGuiCol.ButtonActive, new System.Numerics.Vector4(0, 0.3f, 0, 1.0f));
 
-                    if (ImGui.Button($"Download##{plugin.Name}"))
+                    if (endorsedFork != null)
                     {
-                        _ = CloneRepositoryAsync(plugin.CloneUrl);
+                        if (ImGui.Button($"Download##{plugin.Name}"))
+                        {
+                            string cloneUrl = $"https://github.com/{endorsedFork.Location}/{endorsedFork.Name}.git";
+                            _ = DownloadPluginAsync(plugin.Name, cloneUrl);
+                        }
+
+                        if (ImGui.IsItemHovered() && !string.IsNullOrEmpty(endorsedFork.LatestCommit?.Message))
+                        {
+                            ImGui.SetTooltip($"Latest commit: {endorsedFork.LatestCommit.Message}");
+                        }
                     }
 
                     ImGui.PopStyleColor(3);
@@ -591,6 +659,31 @@ namespace WheresMyPluginsAt
 
             ImGui.EndTable();
         }
+
+        private async Task DownloadPluginAsync(string pluginName, string cloneUrl)
+        {
+            if (_downloadingPlugins.TryGetValue(pluginName, out bool isDownloading) && isDownloading)
+                return;
+
+            try
+            {
+                _downloadingPlugins[pluginName] = true;
+                consoleLog.LogInfo($"Downloading plugin: {pluginName}");
+
+                await updater.CloneRepositoryAsync(cloneUrl);
+
+                consoleLog.LogSuccess($"Successfully downloaded {pluginName}");
+            }
+            catch (Exception ex)
+            {
+                consoleLog.LogError($"Error downloading plugin {pluginName}: {ex.Message}");
+            }
+            finally
+            {
+                _downloadingPlugins[pluginName] = false;
+            }
+        }
+
 
         public void Dispose()
         {
