@@ -119,15 +119,29 @@ namespace WheresMyPluginsAt
 
                         Commands.Fetch(repo, remote.Name, refSpecs, fetchOptions, null);
 
+                        string branchName = repo.Head.FriendlyName;
                         var trackingBranch = repo.Head.TrackedBranch;
+
+                        if (trackingBranch == null)
+                        {
+                            var remoteBranch = repo.Branches[$"origin/{branchName}"];
+                            if (remoteBranch != null)
+                            {
+                                repo.Branches.Update(repo.Head,
+                                    b => b.TrackedBranch = remoteBranch.CanonicalName);
+                                trackingBranch = remoteBranch;
+                            }
+                        }
+
                         if (trackingBranch != null)
                         {
                             pluginInfo.LatestCommit = trackingBranch.Tip.Sha[..7];
 
-                            if (pluginInfo.CurrentCommit != pluginInfo.LatestCommit)
+                            var divergence = repo.ObjectDatabase.CalculateHistoryDivergence(repo.Head.Tip, trackingBranch.Tip);
+                            if (divergence != null)
                             {
-                                var ahead = repo.Head.TrackingDetails.AheadBy ?? 0;
-                                var behind = repo.Head.TrackingDetails.BehindBy ?? 0;
+                                var ahead = divergence.AheadBy ?? 0;
+                                var behind = divergence.BehindBy ?? 0;
                                 pluginInfo.BehindAhead = $"{behind} behind, {ahead} ahead";
                             }
                         }
@@ -274,7 +288,6 @@ namespace WheresMyPluginsAt
         public async Task CloneRepositoryAsync(string repoUrl)
         {
             string repoName = ExtractRepoNameAndBranch(repoUrl, out string branch);
-
             string targetPath = Path.Combine(_pluginFolder, repoName);
 
             if (Directory.Exists(targetPath))
@@ -312,7 +325,11 @@ namespace WheresMyPluginsAt
                         using (var branchRepo = new Repository(targetPath))
                         {
                             var targetBranch = branchRepo.Branches[$"origin/{branch}"] ?? throw new Exception($"Branch '{branch}' not found in repository");
-                            Commands.Checkout(branchRepo, targetBranch);
+                            var localBranch = branchRepo.CreateBranch(branch, targetBranch.Tip);
+                            branchRepo.Branches.Update(localBranch,
+                                b => b.TrackedBranch = targetBranch.CanonicalName);
+
+                            Commands.Checkout(branchRepo, localBranch);
                         }
                     }
 
