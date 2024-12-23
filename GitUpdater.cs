@@ -226,7 +226,7 @@ namespace WheresMyPluginsAt
 
                     plugin.LastMessage = mergeResult.Status == MergeStatus.UpToDate
                         ? "Already up to date"
-                        : $"Merged {mergeResult.Status}";
+                        : $"Updated to {mergeResult.Commit.Id}";
 
                     plugin.CurrentCommit = repo.Head.Tip.Sha[..7];
                     plugin.LatestCommit = trackingBranch.Tip.Sha[..7];

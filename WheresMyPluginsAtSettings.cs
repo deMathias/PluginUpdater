@@ -1,6 +1,7 @@
 ﻿using ExileCore2;
 using ExileCore2.Shared.Interfaces;
 using ExileCore2.Shared.Nodes;
+using Newtonsoft.Json;
 
 namespace WheresMyPluginsAt;
 
@@ -13,7 +14,9 @@ public class WheresMyPluginsAtSettings : ISettings
 
     public ToggleNode Enable { get; set; } = new ToggleNode(true);
 
-    public PluginRenderer PluginConfig { get; set; } = null;
-    public GameController GameController { get; set; } = null; // this is very lazy
+    [JsonIgnore]
+    public PluginRenderer PluginConfig { get; set; }
+    [JsonIgnore]
+    public GameController GameController { get; set; } // this is very lazy
 }
 
