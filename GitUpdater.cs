@@ -364,6 +364,57 @@ namespace WheresMyPluginsAt
             }
         }
 
+        public void DeletePlugin(string pluginName)
+        {
+            var pluginPath = Path.Combine(_pluginFolder, pluginName);
+
+            if (!Directory.Exists(pluginPath))
+            {
+                throw new DirectoryNotFoundException($"Plugin directory not found: {pluginPath}");
+            }
+
+            try
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+
+                foreach (var process in System.Diagnostics.Process.GetProcessesByName("git"))
+                {
+                    if (process.MainModule?.FileName != null &&
+                        process.MainModule.FileName.Contains(pluginPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        process.Kill();
+                        process.WaitForExit();
+                    }
+                }
+
+                foreach (var file in Directory.GetFiles(pluginPath, "*.*", SearchOption.AllDirectories))
+                {
+                    File.SetAttributes(file, FileAttributes.Normal);
+                }
+
+                foreach (var dir in Directory.GetDirectories(pluginPath, "*", SearchOption.AllDirectories))
+                {
+                    File.SetAttributes(dir, FileAttributes.Normal);
+                }
+
+                Directory.Delete(pluginPath, true);
+
+                lock (_pluginInfo)
+                {
+                    var plugin = _pluginInfo.FirstOrDefault(p => p.Name.Equals(pluginName, StringComparison.OrdinalIgnoreCase));
+                    if (plugin != null)
+                    {
+                        _pluginInfo.Remove(plugin);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to delete plugin: {ex.Message}", ex);
+            }
+        }
+
         public List<PluginInfo> GetPluginInfo()
         {
             lock (_pluginInfo)

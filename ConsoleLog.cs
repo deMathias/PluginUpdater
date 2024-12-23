@@ -7,23 +7,16 @@ using System.Threading.Tasks;
 
 namespace WheresMyPluginsAt
 {
-    public class LogEntry
+    public class LogEntry(string message, System.Numerics.Vector4 color)
     {
-        public string Message { get; }
-        public DateTime Timestamp { get; }
-        public System.Numerics.Vector4 Color { get; }
-
-        public LogEntry(string message, System.Numerics.Vector4 color)
-        {
-            Message = message;
-            Timestamp = DateTime.Now;
-            Color = color;
-        }
+        public string Message { get; } = message;
+        public DateTime Timestamp { get; } = DateTime.Now;
+        public System.Numerics.Vector4 Color { get; } = color;
     }
     public class ConsoleLog
     {
-        private readonly List<LogEntry> _logEntries = new List<LogEntry>();
-        private readonly object _logLock = new object();
+        private readonly List<LogEntry> _logEntries = [];
+        private readonly object _logLock = new();
 
         private static readonly System.Numerics.Vector4
             ColorInfo = new System.Numerics.Vector4(1.0f, 1.0f, 1.0f, 1.0f),      // White

@@ -51,7 +51,7 @@ namespace WheresMyPluginsAt
     {
         private readonly WheresMyPluginsAtSettings Settings;
         private readonly GitUpdater updater;
-        private readonly ConsoleLog consoleLog = new ConsoleLog();
+        private readonly ConsoleLog consoleLog = new();
         private bool _isUpdating;
         private readonly Dictionary<string, bool> _updatingPlugins = [];
         private readonly Dictionary<string, bool> _revertingPlugins = [];
@@ -62,7 +62,7 @@ namespace WheresMyPluginsAt
         private readonly object _logLock = new();
         private string _repoUrl = string.Empty;
         private bool _isCloning;
-        private readonly List<PluginDescription> _availablePlugins = new();
+        private readonly List<PluginDescription> _availablePlugins = [];
         private readonly Dictionary<string, bool> _downloadingPlugins = [];
         private bool _isLoadingRepos;
         private bool _hasLoadedRepos;
@@ -529,6 +529,8 @@ namespace WheresMyPluginsAt
             }
         }
 
+        private string _pluginToDelete = null;
+
         private void RenderPluginBrowser()
         {
             if (!_hasLoadedRepos && !_isLoadingRepos)
@@ -536,7 +538,7 @@ namespace WheresMyPluginsAt
                 _ = LoadRepositoriesAsync();
             }
 
-            ImGui.TextWrapped("Browse and download available plugins for ExileCore2");
+            ImGui.TextWrapped("Browse and download available plugins from the ExileCore2 organization.");
             ImGui.Spacing();
 
             if (_isLoadingRepos)
@@ -570,20 +572,14 @@ namespace WheresMyPluginsAt
             const float ROW_HEIGHT = 30;
             const float HEADER_HEIGHT = 30;
             var installedPlugins = updater.GetPluginInfo();
-            var availablePlugins = _availablePlugins.Where(p =>
-                !installedPlugins.Any(ip => ip.Name.Equals(p.Name, StringComparison.OrdinalIgnoreCase))
-            ).ToList();
 
-            if (availablePlugins.Count == 0)
+            if (_availablePlugins.Count == 0)
             {
-                ImGui.TextColored(new System.Numerics.Vector4(0.2f, 1.0f, 0.2f, 1.0f),
-                    _availablePlugins.Count > 0
-                        ? "All available plugins are already installed!"
-                        : "No plugins found in the repository.");
+                ImGui.TextColored(new System.Numerics.Vector4(1.0f, 0.2f, 0.2f, 1.0f), "No plugins found in the repository.");
                 return;
             }
 
-            float tableHeight = (availablePlugins.Count * ROW_HEIGHT) + HEADER_HEIGHT;
+            float tableHeight = (_availablePlugins.Count * ROW_HEIGHT) + HEADER_HEIGHT;
 
             if (!ImGui.BeginTable("##browsertable", 6, tableFlags, new System.Numerics.Vector2(-1, tableHeight)))
                 return;
@@ -596,7 +592,7 @@ namespace WheresMyPluginsAt
             ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed, 100f);
             ImGui.TableHeadersRow();
 
-            foreach (var plugin in availablePlugins)
+            foreach (var plugin in _availablePlugins)
             {
                 ImGui.TableNextRow();
 
@@ -625,22 +621,47 @@ namespace WheresMyPluginsAt
                 ImGui.Text(lastUpdated);
 
                 ImGui.TableNextColumn();
-                bool isDownloading = _downloadingPlugins.TryGetValue(plugin.Name, out bool downloading) && downloading;
 
-                if (isDownloading)
+                if (endorsedFork == null) continue;
+
+                bool isInstalled = installedPlugins.Any(ip =>
+                    ip.Name.Equals(endorsedFork.Name, StringComparison.OrdinalIgnoreCase));
+
+                if (isInstalled)
                 {
-                    ImGui.BeginDisabled();
-                    ImGui.Button($"Downloading...##{plugin.Name}");
-                    ImGui.EndDisabled();
+                    ImGui.PushStyleColor(ImGuiCol.Button, new System.Numerics.Vector4(0.8f, 0.2f, 0.2f, 1.0f));
+                    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new System.Numerics.Vector4(1.0f, 0.3f, 0.3f, 1.0f));
+                    ImGui.PushStyleColor(ImGuiCol.ButtonActive, new System.Numerics.Vector4(0.6f, 0.1f, 0.1f, 1.0f));
+
+                    if (ImGui.Button($"Delete##{endorsedFork.Name}"))
+                    {
+                        _pluginToDelete = endorsedFork.Name;
+                        ImGui.OpenPopup("Delete Plugin?");
+                    }
+
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip("Delete this plugin");
+                    }
+
+                    ImGui.PopStyleColor(3);
                 }
                 else
                 {
-                    ImGui.PushStyleColor(ImGuiCol.Button, new System.Numerics.Vector4(0, 0.5f, 0, 1.0f));
-                    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new System.Numerics.Vector4(0, 0.7f, 0, 1.0f));
-                    ImGui.PushStyleColor(ImGuiCol.ButtonActive, new System.Numerics.Vector4(0, 0.3f, 0, 1.0f));
+                    bool isDownloading = _downloadingPlugins.TryGetValue(plugin.Name, out bool downloading) && downloading;
 
-                    if (endorsedFork != null)
+                    if (isDownloading)
                     {
+                        ImGui.BeginDisabled();
+                        ImGui.Button($"Downloading...##{plugin.Name}");
+                        ImGui.EndDisabled();
+                    }
+                    else
+                    {
+                        ImGui.PushStyleColor(ImGuiCol.Button, new System.Numerics.Vector4(0, 0.5f, 0, 1.0f));
+                        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new System.Numerics.Vector4(0, 0.7f, 0, 1.0f));
+                        ImGui.PushStyleColor(ImGuiCol.ButtonActive, new System.Numerics.Vector4(0, 0.3f, 0, 1.0f));
+
                         if (ImGui.Button($"Download##{plugin.Name}"))
                         {
                             string cloneUrl = $"https://github.com/{endorsedFork.Location}/{endorsedFork.Name}.git";
@@ -651,10 +672,50 @@ namespace WheresMyPluginsAt
                         {
                             ImGui.SetTooltip($"Latest commit: {endorsedFork.LatestCommit.Message}");
                         }
-                    }
 
-                    ImGui.PopStyleColor(3);
+                        ImGui.PopStyleColor(3);
+                    }
                 }
+            }
+
+            if (ImGui.BeginPopupModal("Delete Plugin?"))
+            {
+                ImGui.Text($"Are you sure you want to delete the plugin '{_pluginToDelete}'?");
+                ImGui.Text("This action cannot be undone!");
+                ImGui.Spacing();
+
+                float buttonWidth = 120;
+                float spacing = 20;
+                float totalWidth = (buttonWidth * 2) + spacing;
+                ImGui.SetCursorPosX((ImGui.GetWindowSize().X - totalWidth) * 0.5f);
+
+                ImGui.PushStyleColor(ImGuiCol.Button, new System.Numerics.Vector4(0.8f, 0.2f, 0.2f, 1.0f));
+                ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new System.Numerics.Vector4(1.0f, 0.3f, 0.3f, 1.0f));
+                ImGui.PushStyleColor(ImGuiCol.ButtonActive, new System.Numerics.Vector4(0.6f, 0.1f, 0.1f, 1.0f));
+
+                if (ImGui.Button("Delete", new System.Numerics.Vector2(buttonWidth, 0)))
+                {
+                    try
+                    {
+                        updater.DeletePlugin(_pluginToDelete);
+                        consoleLog.LogSuccess($"Successfully deleted plugin: {_pluginToDelete}");
+                        ImGui.CloseCurrentPopup();
+                    }
+                    catch (Exception ex)
+                    {
+                        consoleLog.LogError($"Failed to delete plugin: {ex.Message}");
+                        ImGui.CloseCurrentPopup();
+                    }
+                }
+                ImGui.PopStyleColor(3);
+
+                ImGui.SameLine(0, spacing);
+                if (ImGui.Button("Cancel", new System.Numerics.Vector2(buttonWidth, 0)))
+                {
+                    ImGui.CloseCurrentPopup();
+                }
+
+                ImGui.EndPopup();
             }
 
             ImGui.EndTable();
