@@ -322,32 +322,28 @@ namespace WheresMyPluginsAt
 
                     if (!string.IsNullOrEmpty(branch))
                     {
-                        using (var branchRepo = new Repository(targetPath))
-                        {
-                            var targetBranch = branchRepo.Branches[$"origin/{branch}"] ?? throw new Exception($"Branch '{branch}' not found in repository");
-                            var localBranch = branchRepo.CreateBranch(branch, targetBranch.Tip);
-                            branchRepo.Branches.Update(localBranch,
-                                b => b.TrackedBranch = targetBranch.CanonicalName);
+                        using var branchRepo = new Repository(targetPath);
+                        var targetBranch = branchRepo.Branches[$"origin/{branch}"] ?? throw new Exception($"Branch '{branch}' not found in repository");
+                        var localBranch = branchRepo.CreateBranch(branch, targetBranch.Tip);
+                        branchRepo.Branches.Update(localBranch,
+                            b => b.TrackedBranch = targetBranch.CanonicalName);
 
-                            Commands.Checkout(branchRepo, localBranch);
-                        }
+                        Commands.Checkout(branchRepo, localBranch);
                     }
 
-                    using (var finalRepo = new Repository(targetPath))
+                    using var finalRepo = new Repository(targetPath);
+                    var pluginInfo = new PluginInfo
                     {
-                        var pluginInfo = new PluginInfo
-                        {
-                            Name = repoName,
-                            CurrentCommit = finalRepo.Head.Tip.Sha[..7]
-                        };
+                        Name = repoName,
+                        CurrentCommit = finalRepo.Head.Tip.Sha[..7]
+                    };
 
-                        var trackingBranch = finalRepo.Head.TrackedBranch;
-                        if (trackingBranch != null)
-                            pluginInfo.LatestCommit = trackingBranch.Tip.Sha[..7];
+                    var trackingBranch = finalRepo.Head.TrackedBranch;
+                    if (trackingBranch != null)
+                        pluginInfo.LatestCommit = trackingBranch.Tip.Sha[..7];
 
-                        lock (_pluginInfo)
-                            _pluginInfo.Add(pluginInfo);
-                    }
+                    lock (_pluginInfo)
+                        _pluginInfo.Add(pluginInfo);
                 }
                 catch (Exception)
                 {

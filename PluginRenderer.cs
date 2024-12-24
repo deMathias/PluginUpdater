@@ -49,9 +49,10 @@ namespace WheresMyPluginsAt
     [Submenu(RenderMethod = nameof(Render))]
     public class PluginRenderer : IDisposable
     {
+        public  readonly ConsoleLog consoleLog = new();
         private readonly WheresMyPluginsAtSettings Settings;
         private readonly GitUpdater updater;
-        private readonly ConsoleLog consoleLog = new();
+        
         private bool _isUpdating;
         private readonly Dictionary<string, bool> _updatingPlugins = [];
         private readonly Dictionary<string, bool> _revertingPlugins = [];
@@ -67,6 +68,7 @@ namespace WheresMyPluginsAt
         private bool _isLoadingRepos;
         private bool _hasLoadedRepos;
         private string _loadError = string.Empty;
+        private DateTime _lastPeriodicCheckAttempt = DateTime.MinValue;
 
         public PluginRenderer(WheresMyPluginsAtSettings settings)
         {
@@ -85,6 +87,31 @@ namespace WheresMyPluginsAt
             }
         }
 
+        public void Startup()
+        {
+            if (Settings.CheckUpdatesOnStartup && !Settings.HasCheckedUpdates)
+            {
+                Settings.HasCheckedUpdates = true;
+                _currentProgress = 0;
+                _totalProgress = 0;
+                _ = UpdateGitInfoAsync();
+            }
+        }
+
+        public void Update()
+        {
+            if ((DateTime.Now - _lastPeriodicCheckAttempt).TotalMinutes < 1)
+                return;
+
+            _lastPeriodicCheckAttempt = DateTime.Now;
+
+            if (Settings.ShouldPerformPeriodicCheck())
+            {
+                Settings.LastUpdateCheck = DateTime.Now;
+                _ = UpdateGitInfoAsync();
+            }
+        }
+
         private async Task UpdateGitInfoAsync()
         {
             if (_isUpdating) return;
@@ -93,6 +120,13 @@ namespace WheresMyPluginsAt
             {
                 _isUpdating = true;
                 await updater.UpdateGitInfoAsync();
+
+                var plugins = updater.GetPluginInfo();
+                int updateCount = plugins.Count(p => p.CurrentCommit != p.LatestCommit);
+                if (updateCount > 0)
+                {
+                    consoleLog.AddLogMessage("Pending Updates", $"There is {updateCount} plugin {(updateCount > 1 ? "updates" : "update")} pending.", ConsoleLog.ColorInfo, NotificationType.Info);
+                }
             }
             catch (Exception e)
             {
@@ -199,10 +233,82 @@ namespace WheresMyPluginsAt
                     ImGui.EndTabItem();
                 }
 
+                if (ImGui.BeginTabItem("Settings"))
+                {
+                    ImGui.Spacing();
+                    RenderSettings();
+                    ImGui.EndTabItem();
+                }
+
                 ImGui.EndTabBar();
             }
 
             consoleLog.RenderConsoleLog();
+        }
+
+        private void RenderSettings()
+        {
+            bool checkStartup = Settings.CheckUpdatesOnStartup;
+            if (ImGui.Checkbox("Check for updates on startup", ref checkStartup))
+            {
+                Settings.CheckUpdatesOnStartup = checkStartup;
+                Settings.HasCheckedUpdates = false;
+            }
+
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip("Automatically check for plugin updates when the game starts");
+            }
+
+            ImGui.Spacing();
+
+            bool autoCheck = Settings.AutoCheckUpdates;
+            if (ImGui.Checkbox("Automatically check for updates periodically", ref autoCheck))
+            {
+                Settings.AutoCheckUpdates = autoCheck;
+            }
+
+            if (autoCheck)
+            {
+                ImGui.Spacing();
+
+                int interval = Settings.UpdateCheckIntervalMinutes;
+
+                int[] intervals = [15, 30, 60, 120, 180, 360, 720, 1440];
+                int currentIndex = Array.BinarySearch(intervals, interval);
+                if (currentIndex < 0) currentIndex = 0;
+
+                string[] intervalStrings = intervals.Select(i =>
+                    i < 60 ? $"{i} minutes" :
+                    i == 60 ? "1 hour" :
+                    i < 1440 ? $"{i / 60} hours" :
+                    "24 hours").ToArray();
+
+                ImGui.SetNextItemWidth(120);
+                if (ImGui.BeginCombo("Check every", intervalStrings[currentIndex], ImGuiComboFlags.PopupAlignLeft))
+                {
+                    for (int i = 0; i < intervalStrings.Length; i++)
+                    {
+                        bool isSelected = i == currentIndex;
+                        if (ImGui.Selectable(intervalStrings[i], isSelected))
+                        {
+                            Settings.UpdateCheckIntervalMinutes = intervals[i];
+                        }
+
+                        if (isSelected)
+                            ImGui.SetItemDefaultFocus();
+                    }
+                    ImGui.EndCombo();
+                }
+            }
+
+            ImGui.Spacing();
+
+            bool notificationCheck = Settings.ShowNotifications;
+            if (ImGui.Checkbox("Show notifications (drawn bottom right of window)", ref notificationCheck))
+            {
+                Settings.ShowNotifications = notificationCheck;
+            }
         }
 
         private void RenderUpdateButtons()
