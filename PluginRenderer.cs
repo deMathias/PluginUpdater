@@ -377,10 +377,19 @@ namespace WheresMyPluginsAt
                             ImGuiTableFlags.ScrollX |
                             ImGuiTableFlags.RowBg;
 
-            const float ROW_HEIGHT = 25;
-            const float HEADER_HEIGHT = 30;
             var plugins = updater.GetPluginInfo();
-            float tableHeight = (plugins.Count * ROW_HEIGHT) + HEADER_HEIGHT;
+            float fontSize = Settings.GameController.Settings.CoreSettings.FontSize.Value;
+
+            float rowHeight = Math.Max(
+                ImGui.GetTextLineHeightWithSpacing(),
+                ImGui.GetFrameHeight() + ImGui.GetStyle().FramePadding.Y * 2
+            );
+
+            float totalTableHeight = rowHeight * (plugins.Count + 1);
+
+            float panelHeight = ImGui.GetContentRegionAvail().Y;
+
+            float tableHeight = Math.Min(totalTableHeight, panelHeight * 0.60f);
 
             if (!ImGui.BeginTable("##table1", 3, tableFlags, new System.Numerics.Vector2(-1, tableHeight)))
                 return;
@@ -673,12 +682,11 @@ namespace WheresMyPluginsAt
             var tableFlags = ImGuiTableFlags.Borders |
                             ImGuiTableFlags.Resizable |
                             ImGuiTableFlags.SizingFixedFit |
+                            ImGuiTableFlags.ScrollX |
                             ImGuiTableFlags.ScrollY |
                             ImGuiTableFlags.RowBg |
                             ImGuiTableFlags.Hideable;
 
-            const float ROW_HEIGHT = 30;
-            const float HEADER_HEIGHT = 30;
             var installedPlugins = updater.GetPluginInfo();
 
             if (_availablePlugins.Count == 0)
@@ -687,17 +695,26 @@ namespace WheresMyPluginsAt
                 return;
             }
 
-            float tableHeight = (_availablePlugins.Count * ROW_HEIGHT) + HEADER_HEIGHT;
+            float fontSize = Settings.GameController.Settings.CoreSettings.FontSize.Value;
+
+            float rowHeight = Math.Max(
+                ImGui.GetTextLineHeightWithSpacing(),
+                ImGui.GetFrameHeight() + ImGui.GetStyle().FramePadding.Y * 2
+            );
+
+            float totalTableHeight = rowHeight * (_availablePlugins.Count + 1);
+            float panelHeight = ImGui.GetContentRegionAvail().Y;
+            float tableHeight = Math.Min(totalTableHeight, panelHeight * 0.60f);
 
             if (!ImGui.BeginTable("##browsertable", 6, tableFlags, new System.Numerics.Vector2(-1, tableHeight)))
                 return;
 
-            ImGui.TableSetupColumn("Plugin", ImGuiTableColumnFlags.WidthStretch);
-            ImGui.TableSetupColumn("Description", ImGuiTableColumnFlags.WidthStretch, 2.0f);
-            ImGui.TableSetupColumn("Original Author", ImGuiTableColumnFlags.WidthFixed, 100f);
-            ImGui.TableSetupColumn("Endorsed Fork", ImGuiTableColumnFlags.WidthFixed, 100f);
-            ImGui.TableSetupColumn("Last Updated", ImGuiTableColumnFlags.WidthFixed, 100f);
-            ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed, 100f);
+            ImGui.TableSetupColumn("Plugin", ImGuiTableColumnFlags.WidthFixed, 50);
+            ImGui.TableSetupColumn("Description", ImGuiTableColumnFlags.WidthFixed, 50);
+            ImGui.TableSetupColumn("Original Author", ImGuiTableColumnFlags.WidthFixed, 50);
+            ImGui.TableSetupColumn("Endorsed Fork", ImGuiTableColumnFlags.WidthFixed, 50);
+            ImGui.TableSetupColumn("Last Updated", ImGuiTableColumnFlags.WidthFixed, 50);
+            ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed, 50);
             ImGui.TableHeadersRow();
 
             foreach (var plugin in _availablePlugins)
