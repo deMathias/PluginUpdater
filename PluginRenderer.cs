@@ -378,7 +378,6 @@ namespace WheresMyPluginsAt
                             ImGuiTableFlags.RowBg;
 
             var plugins = updater.GetPluginInfo();
-            float fontSize = Settings.GameController.Settings.CoreSettings.FontSize.Value;
 
             float rowHeight = Math.Max(
                 ImGui.GetTextLineHeightWithSpacing(),
@@ -694,8 +693,6 @@ namespace WheresMyPluginsAt
                 ImGui.TextColored(new System.Numerics.Vector4(1.0f, 0.2f, 0.2f, 1.0f), "No plugins found in the repository.");
                 return;
             }
-
-            float fontSize = Settings.GameController.Settings.CoreSettings.FontSize.Value;
 
             float rowHeight = Math.Max(
                 ImGui.GetTextLineHeightWithSpacing(),
