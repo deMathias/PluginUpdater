@@ -1,6 +1,7 @@
 ﻿using ExileCore2;
 using LibGit2Sharp;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -22,7 +23,7 @@ namespace WheresMyPluginsAt
     public class GitUpdater : IDisposable
     {
         private readonly string _pluginFolder;
-        private readonly List<PluginInfo> _pluginInfo = [];
+        private readonly ConcurrentDictionary<string, PluginInfo> _pluginInfo = new(StringComparer.OrdinalIgnoreCase);
         private CancellationTokenSource _updateCts;
         private Task _updateTask;
 
@@ -41,7 +42,8 @@ namespace WheresMyPluginsAt
             var folders = GetPluginsWithGit();
             foreach (var folder in folders)
             {
-                _pluginInfo.Add(new PluginInfo { Name = Path.GetFileName(folder) });
+                var pluginInfo = new PluginInfo { Name = Path.GetFileName(folder) };
+                _pluginInfo[pluginInfo.Name] = pluginInfo;
             }
         }
 
@@ -147,18 +149,7 @@ namespace WheresMyPluginsAt
                         }
                     }, cancellationToken);
 
-                    lock (_pluginInfo)
-                    {
-                        var existingPlugin = _pluginInfo.FirstOrDefault(p => p.Name == pluginInfo.Name);
-                        if (existingPlugin != null)
-                        {
-                            _pluginInfo[_pluginInfo.IndexOf(existingPlugin)] = pluginInfo;
-                        }
-                        else
-                        {
-                            _pluginInfo.Add(pluginInfo);
-                        }
-                    }
+                    _pluginInfo[pluginInfo.Name] = pluginInfo;
                 }
                 catch (Exception e)
                 {
@@ -177,7 +168,7 @@ namespace WheresMyPluginsAt
             var folder = GetPluginsWithGit().FirstOrDefault(f => f.Contains(pluginName));
             if (folder == null) return;
 
-            var plugin = _pluginInfo.FirstOrDefault(p => p.Name == pluginName);
+            var plugin = _pluginInfo.GetValueOrDefault(pluginName);
             if (plugin == null) return;
 
             await Task.Run(() =>
@@ -216,7 +207,7 @@ namespace WheresMyPluginsAt
             var folder = GetPluginsWithGit().FirstOrDefault(f => f.Contains(pluginName));
             if (folder == null) return;
 
-            var plugin = _pluginInfo.FirstOrDefault(p => p.Name == pluginName);
+            var plugin = _pluginInfo.GetValueOrDefault(pluginName);
             if (plugin == null) return;
 
             await Task.Run(() =>
@@ -342,8 +333,7 @@ namespace WheresMyPluginsAt
                     if (trackingBranch != null)
                         pluginInfo.LatestCommit = trackingBranch.Tip.Sha[..7];
 
-                    lock (_pluginInfo)
-                        _pluginInfo.Add(pluginInfo);
+                    _pluginInfo[pluginInfo.Name] = pluginInfo;
                 }
                 catch (Exception)
                 {
@@ -379,13 +369,7 @@ namespace WheresMyPluginsAt
 
                 Directory.Delete(pluginPath, true);
 
-                lock (_pluginInfo)
-                {
-                    var plugin = _pluginInfo.FirstOrDefault(p =>
-                        p.Name.Equals(pluginName, StringComparison.OrdinalIgnoreCase));
-                    if (plugin != null)
-                        _pluginInfo.Remove(plugin);
-                }
+                _pluginInfo.TryRemove(pluginName, out _);
             }
             catch (Exception ex)
             {
@@ -395,8 +379,7 @@ namespace WheresMyPluginsAt
 
         public List<PluginInfo> GetPluginInfo()
         {
-            lock (_pluginInfo)
-                return new List<PluginInfo>(_pluginInfo);
+            return _pluginInfo.Values.ToList();
         }
 
         public void Dispose()
