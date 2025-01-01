@@ -59,8 +59,6 @@ namespace WheresMyPluginsAt
         private int _currentProgress;
         private int _totalProgress;
         private bool _isUpdatingAll;
-        private readonly StringBuilder _logBuffer = new();
-        private readonly object _logLock = new();
         private string _repoUrl = string.Empty;
         private bool _isCloning;
         private readonly List<PluginDescription> _availablePlugins = [];
