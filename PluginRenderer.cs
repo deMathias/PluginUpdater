@@ -116,6 +116,8 @@ namespace PluginUpdater
 
             try
             {
+                PluginUpdater.Instance.RemoveNotification("", "PendingUpdates");
+
                 _isUpdating = true;
                 await _updater.UpdateGitInfoAsync();
 
@@ -161,6 +163,7 @@ namespace PluginUpdater
                     }
                 }
                 _consoleLog.LogSuccess($"Successfully updated {pluginName}");
+                PluginUpdater.Instance.RemoveNotification("", "PendingUpdates");
             }
             catch (Exception e)
             {
@@ -190,6 +193,8 @@ namespace PluginUpdater
                 {
                     await UpdatePluginAsync(plugin.Name);
                 }
+
+                PluginUpdater.Instance.RemoveNotification("", "PendingUpdates");
             }
             catch (Exception e)
             {
