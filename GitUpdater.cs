@@ -437,50 +437,59 @@ namespace PluginUpdater
 
         private readonly CredentialsHandler _credentialsHandler = (url, usernameFromUrl, types) =>
         {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "git.exe",
-                Arguments = "credential fill",
-                UseShellExecute = false,
-                WindowStyle = ProcessWindowStyle.Hidden,
-                CreateNoWindow = true,
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            };
-
-            var process = new Process
-            {
-                StartInfo = startInfo
-            };
-
-            process.Start();
-
-            var uri = new Uri(url);
-            process.StandardInput.NewLine = "\n";
-            process.StandardInput.WriteLine($"protocol={uri.Scheme}");
-            process.StandardInput.WriteLine($"host={uri.Host}");
-            process.StandardInput.WriteLine($"path={uri.AbsolutePath}");
-            process.StandardInput.WriteLine();
-
             string username = null;
             string password = null;
-            while (process.StandardOutput.ReadLine() is { } line)
+            try
             {
-                var details = line.Split('=');
-                if (details[0] == "username")
+                var startInfo = new ProcessStartInfo
                 {
-                    username = details[1];
-                }
-                else if (details[0] == "password")
+                    FileName = "git.exe",
+                    Arguments = "credential fill",
+                    UseShellExecute = false,
+                    WindowStyle = ProcessWindowStyle.Hidden,
+                    CreateNoWindow = true,
+                    RedirectStandardInput = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+
+                var process = new Process
                 {
-                    password = details[1];
+                    StartInfo = startInfo
+                };
+
+                process.Start();
+
+                var uri = new Uri(url);
+                process.StandardInput.NewLine = "\n";
+                process.StandardInput.WriteLine($"protocol={uri.Scheme}");
+                process.StandardInput.WriteLine($"host={uri.Host}");
+                process.StandardInput.WriteLine($"path={uri.AbsolutePath}");
+                process.StandardInput.WriteLine();
+
+
+                while (process.StandardOutput.ReadLine() is { } line)
+                {
+                    var details = line.Split('=');
+                    if (details[0] == "username")
+                    {
+                        username = details[1];
+                    }
+                    else if (details[0] == "password")
+                    {
+                        password = details[1];
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                DebugWindow.LogError($"Unable to retrieve credentials for {url}: {ex}");
+                return new DefaultCredentials();
             }
 
             if (username == null || password == null)
             {
-                DebugWindow.LogError($"Unable to get credentials for {uri}");
+                DebugWindow.LogError($"Unable to retrieve credentials for {url}");
                 return new DefaultCredentials();
             }
 
