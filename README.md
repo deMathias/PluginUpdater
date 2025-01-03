@@ -1,10 +1,3 @@
-**Install Instructions**
-
-Navigate to your source folder and pull the plugin with this command
-```
-git clone https://github.com/doubleespressobro/WheresMyPluginsAt-PoE2/
-```
-
 **Usage**
 
 The "Add" tab now supports both regular github urls `https://github.com/doubleespressobro/WheresMyZoom/` and branch specific urls `https://github.com/doubleespressobro/WheresMyZoom/tree/poe2`
@@ -32,8 +25,3 @@ Settings Tab
 ![nB6Df8S](https://github.com/user-attachments/assets/f6e721be-7ac6-4712-9f7c-d569ea03d21e)
 
 ![image](https://github.com/user-attachments/assets/8a19a0ff-2d4a-4dbc-8a52-6d219832a9f8)
-
-Notification Example
-
-![QB17j1o](https://github.com/user-attachments/assets/1a622867-7c34-46f8-b9dc-39491a300eba)
-
