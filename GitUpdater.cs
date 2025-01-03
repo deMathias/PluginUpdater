@@ -1,18 +1,18 @@
-﻿using ExileCore2;
-using LibGit2Sharp;
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using ExileCore2;
 using ExileCore2.Shared;
+using LibGit2Sharp;
 using LibGit2Sharp.Handlers;
-using System.Diagnostics;
 
-namespace WheresMyPluginsAt
+namespace PluginUpdater
 {
     public class PluginInfo
     {

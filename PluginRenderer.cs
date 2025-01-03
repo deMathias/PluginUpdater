@@ -1,14 +1,13 @@
-﻿using ExileCore2.Shared.Attributes;
-using ExileCore2;
-using ImGuiNET;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
+using ExileCore2;
+using ExileCore2.Shared.Attributes;
+using ImGuiNET;
 
-namespace WheresMyPluginsAt
+namespace PluginUpdater
 {
     public class PluginRepositoryData
     {
@@ -50,7 +49,7 @@ namespace WheresMyPluginsAt
     public class PluginRenderer : IDisposable
     {
         private readonly ConsoleLog _consoleLog = new();
-        private readonly WheresMyPluginsAtSettings _settings;
+        private readonly PluginUpdaterSettings _settings;
         private GitUpdater _updater;
         
         private bool _isUpdating;
@@ -68,14 +67,14 @@ namespace WheresMyPluginsAt
         private string _loadError = string.Empty;
         private DateTime _lastPeriodicCheckAttempt = DateTime.MinValue;
 
-        public PluginRenderer(WheresMyPluginsAtSettings settings)
+        public PluginRenderer(PluginUpdaterSettings settings)
         {
             _settings = settings;
         }
 
         public void Startup()
         {
-            _updater = new GitUpdater(WheresMyPluginsAt.Instance.PluginManager);
+            _updater = new GitUpdater(PluginUpdater.Instance.PluginManager);
             _updater.ProgressChanged += (current, total) =>
             {
                 _currentProgress = current;

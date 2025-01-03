@@ -1,14 +1,14 @@
-﻿using ExileCore2;
+﻿using System;
+using ExileCore2;
 using ExileCore2.Shared.Interfaces;
 using ExileCore2.Shared.Nodes;
 using Newtonsoft.Json;
-using System;
 
-namespace WheresMyPluginsAt;
+namespace PluginUpdater;
 
-public class WheresMyPluginsAtSettings : ISettings
+public class PluginUpdaterSettings : ISettings
 {
-    public WheresMyPluginsAtSettings()
+    public PluginUpdaterSettings()
     {
         PluginConfig = new PluginRenderer(this);
     }

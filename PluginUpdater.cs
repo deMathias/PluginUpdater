@@ -1,10 +1,10 @@
 ﻿using ExileCore2;
 
-namespace WheresMyPluginsAt;
+namespace PluginUpdater;
 
-public class WheresMyPluginsAt : BaseSettingsPlugin<WheresMyPluginsAtSettings>
+public class PluginUpdater : BaseSettingsPlugin<PluginUpdaterSettings>
 {
-    public static WheresMyPluginsAt Instance;
+    public static PluginUpdater Instance;
 
     public override bool Initialise()
     {

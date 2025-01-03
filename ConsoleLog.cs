@@ -1,10 +1,10 @@
-﻿using ExileCore2.Shared;
-using ImGuiNET;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Numerics;
+using ExileCore2.Shared;
+using ImGuiNET;
 
-namespace WheresMyPluginsAt
+namespace PluginUpdater
 {
     public class LogEntry(string message, Vector4 color)
     {
@@ -39,7 +39,7 @@ namespace WheresMyPluginsAt
                 _logEntries.Add(new LogEntry(message, color));
             }
 
-            WheresMyPluginsAt.Instance.PostNotification(new PluginNotification("", id, message));
+            PluginUpdater.Instance.PostNotification(new PluginNotification("", id, message));
         }
 
         public void LogInfo(string message) =>
