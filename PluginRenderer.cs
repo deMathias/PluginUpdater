@@ -49,9 +49,9 @@ namespace WheresMyPluginsAt
     [Submenu(RenderMethod = nameof(Render))]
     public class PluginRenderer : IDisposable
     {
-        public  readonly ConsoleLog consoleLog = new();
-        private readonly WheresMyPluginsAtSettings Settings;
-        private readonly GitUpdater updater;
+        private readonly ConsoleLog _consoleLog = new();
+        private readonly WheresMyPluginsAtSettings _settings;
+        private GitUpdater _updater;
         
         private bool _isUpdating;
         private readonly Dictionary<string, bool> _updatingPlugins = [];
@@ -70,26 +70,27 @@ namespace WheresMyPluginsAt
 
         public PluginRenderer(WheresMyPluginsAtSettings settings)
         {
-            Settings = settings;
-            updater = new GitUpdater(Path.Combine(Environment.CurrentDirectory, "Plugins", "Source"));
-            updater.ProgressChanged += (current, total) =>
+            _settings = settings;
+        }
+
+        public void Startup()
+        {
+            _updater = new GitUpdater(WheresMyPluginsAt.Instance.PluginManager);
+            _updater.ProgressChanged += (current, total) =>
             {
                 _currentProgress = current;
                 _totalProgress = total;
             };
 
-            var manuallyDownloadedPlugins = updater.GetManualDownloadedPlugins();
+            var manuallyDownloadedPlugins = _updater.GetManualPlugins();
             foreach (var plugin in manuallyDownloadedPlugins)
             {
-                consoleLog.LogWarning($"{Path.GetFileName(plugin)} was downloaded manually so cannot be updated via this plugin");
+                _consoleLog.LogWarning($"{Path.GetFileName(plugin.Name)} was downloaded manually so cannot be updated via this plugin");
             }
-        }
 
-        public void Startup()
-        {
-            if (Settings.CheckUpdatesOnStartup && !Settings.HasCheckedUpdates)
+            if (_settings.CheckUpdatesOnStartup && !_settings.HasCheckedUpdates)
             {
-                Settings.HasCheckedUpdates = true;
+                _settings.HasCheckedUpdates = true;
                 _currentProgress = 0;
                 _totalProgress = 0;
                 _ = UpdateGitInfoAsync();
@@ -103,9 +104,9 @@ namespace WheresMyPluginsAt
 
             _lastPeriodicCheckAttempt = DateTime.Now;
 
-            if (Settings.ShouldPerformPeriodicCheck())
+            if (_settings.ShouldPerformPeriodicCheck())
             {
-                Settings.LastUpdateCheck = DateTime.Now;
+                _settings.LastUpdateCheck = DateTime.Now;
                 _ = UpdateGitInfoAsync();
             }
         }
@@ -117,20 +118,20 @@ namespace WheresMyPluginsAt
             try
             {
                 _isUpdating = true;
-                await updater.UpdateGitInfoAsync();
+                await _updater.UpdateGitInfoAsync();
 
-                var plugins = updater.GetPluginInfo();
+                var plugins = _updater.GetPluginInfo();
                 int updateCount = plugins.Count(p => p.CurrentCommit != p.LatestCommit);
                 if (updateCount > 0)
                 {
-                    consoleLog.AddLogMessage("Pending Updates", $"There is {updateCount} plugin {(updateCount > 1 ? "updates" : "update")} pending.", ConsoleLog.ColorInfo, NotificationType.Info);
+                    _consoleLog.AddNotificationMessage("PendingUpdates", $"There is {updateCount} plugin {(updateCount > 1 ? "updates" : "update")} pending.", ConsoleLog.ColorInfo);
                 }
             }
             catch (Exception e)
             {
-                var errorMsg = $"Error updating git info: {e.Message}";
+                var errorMsg = $"Error updating git info: {e}";
                 DebugWindow.LogError(errorMsg);
-                consoleLog.LogError($"{errorMsg}");
+                _consoleLog.LogError($"{errorMsg}");
             }
             finally
             {
@@ -146,9 +147,9 @@ namespace WheresMyPluginsAt
             try
             {
                 _updatingPlugins[pluginName] = true;
-                consoleLog.LogInfo($"Starting update for {pluginName}...");
-                await updater.UpdatePluginAsync(pluginName);
-                var plugin = updater.GetPluginInfo().FirstOrDefault(p => p.Name == pluginName);
+                _consoleLog.LogInfo($"Starting update for {pluginName}...");
+                await _updater.UpdatePluginAsync(pluginName);
+                var plugin = _updater.GetPluginInfo().FirstOrDefault(p => p.Name == pluginName);
                 if (plugin != null && !string.IsNullOrEmpty(plugin.LastMessage))
                 {
                     var lines = plugin.LastMessage.Split('\n');
@@ -156,17 +157,17 @@ namespace WheresMyPluginsAt
                     {
                         if (!string.IsNullOrWhiteSpace(line))
                         {
-                            consoleLog.LogInfo($"{line.Trim()}");
+                            _consoleLog.LogInfo($"{line.Trim()}");
                         }
                     }
                 }
-                consoleLog.LogSuccess($"Successfully updated {pluginName}");
+                _consoleLog.LogSuccess($"Successfully updated {pluginName}");
             }
             catch (Exception e)
             {
                 var errorMsg = $"Error updating plugin {pluginName}: {e.Message}";
                 DebugWindow.LogError(errorMsg);
-                consoleLog.LogError($"{errorMsg}");
+                _consoleLog.LogError($"{errorMsg}");
             }
             finally
             {
@@ -181,10 +182,10 @@ namespace WheresMyPluginsAt
             try
             {
                 _isUpdatingAll = true;
-                var plugins = updater.GetPluginInfo();
+                var plugins = _updater.GetPluginInfo();
                 var outdatedPlugins = plugins.Where(p => p.CurrentCommit != p.LatestCommit).ToList();
 
-                consoleLog.LogInfo($"Starting update for {outdatedPlugins.Count} plugins...");
+                _consoleLog.LogInfo($"Starting update for {outdatedPlugins.Count} plugins...");
 
                 foreach (var plugin in outdatedPlugins)
                 {
@@ -198,13 +199,13 @@ namespace WheresMyPluginsAt
             finally
             {
                 _isUpdatingAll = false;
-                Settings.GameController.Memory.Dispose();
+                _settings.GameController.Memory.Dispose();
             }
         }
 
         public void Render()
         {
-            if (!Settings.Enable.Value)
+            if (!_settings.Enable.Value)
                 return;
 
             if (ImGui.BeginTabBar("PluginManagerTabs"))
@@ -241,16 +242,16 @@ namespace WheresMyPluginsAt
                 ImGui.EndTabBar();
             }
 
-            consoleLog.RenderConsoleLog();
+            _consoleLog.RenderConsoleLog();
         }
 
         private void RenderSettings()
         {
-            bool checkStartup = Settings.CheckUpdatesOnStartup;
+            bool checkStartup = _settings.CheckUpdatesOnStartup;
             if (ImGui.Checkbox("Check for updates on startup", ref checkStartup))
             {
-                Settings.CheckUpdatesOnStartup = checkStartup;
-                Settings.HasCheckedUpdates = false;
+                _settings.CheckUpdatesOnStartup = checkStartup;
+                _settings.HasCheckedUpdates = false;
             }
 
             if (ImGui.IsItemHovered())
@@ -260,17 +261,17 @@ namespace WheresMyPluginsAt
 
             ImGui.Spacing();
 
-            bool autoCheck = Settings.AutoCheckUpdates;
+            bool autoCheck = _settings.AutoCheckUpdates;
             if (ImGui.Checkbox("Automatically check for updates periodically", ref autoCheck))
             {
-                Settings.AutoCheckUpdates = autoCheck;
+                _settings.AutoCheckUpdates = autoCheck;
             }
 
             if (autoCheck)
             {
                 ImGui.Spacing();
 
-                int interval = Settings.UpdateCheckIntervalMinutes;
+                int interval = _settings.UpdateCheckIntervalMinutes;
 
                 int[] intervals = [15, 30, 60, 120, 180, 360, 720, 1440];
                 int currentIndex = Array.BinarySearch(intervals, interval);
@@ -290,7 +291,7 @@ namespace WheresMyPluginsAt
                         bool isSelected = i == currentIndex;
                         if (ImGui.Selectable(intervalStrings[i], isSelected))
                         {
-                            Settings.UpdateCheckIntervalMinutes = intervals[i];
+                            _settings.UpdateCheckIntervalMinutes = intervals[i];
                         }
 
                         if (isSelected)
@@ -298,14 +299,6 @@ namespace WheresMyPluginsAt
                     }
                     ImGui.EndCombo();
                 }
-            }
-
-            ImGui.Spacing();
-
-            bool notificationCheck = Settings.ShowNotifications;
-            if (ImGui.Checkbox("Show notifications (drawn bottom right of window)", ref notificationCheck))
-            {
-                Settings.ShowNotifications = notificationCheck;
             }
         }
 
@@ -336,7 +329,7 @@ namespace WheresMyPluginsAt
                     _ = UpdateGitInfoAsync();
                 }
 
-                var plugins = updater.GetPluginInfo();
+                var plugins = _updater.GetPluginInfo();
                 bool hasUpdates = plugins.Any(p => p.CurrentCommit != p.LatestCommit);
 
                 if (hasUpdates)
@@ -375,7 +368,7 @@ namespace WheresMyPluginsAt
                             ImGuiTableFlags.ScrollX |
                             ImGuiTableFlags.RowBg;
 
-            var plugins = updater.GetPluginInfo();
+            var plugins = _updater.GetPluginInfo();
 
             float rowHeight = Math.Max(
                 ImGui.GetTextLineHeightWithSpacing(),
@@ -404,20 +397,20 @@ namespace WheresMyPluginsAt
         {
             ImGui.TableSetupColumn("Plugin", ImGuiTableColumnFlags.WidthStretch);
             ImGui.TableSetupColumn("Commit", ImGuiTableColumnFlags.WidthStretch, 2.0f);
-            ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed);
+            ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed);
         }
 
         private void RenderTableRows()
         {
-            var plugins = updater.GetPluginInfo();
+            var plugins = _updater.GetPluginInfo();
 
-            foreach (var pluginInfo in plugins)
+            foreach (var pluginInfo in plugins.OrderBy(x => x.Name))
             {
                 try
                 {
                     RenderPluginName(pluginInfo);
                     RenderCommitInfo(pluginInfo);
-                    RenderUpdateButton(pluginInfo);
+                    RenderActionButtons(pluginInfo);
                 }
                 catch (Exception e)
                 {
@@ -434,18 +427,26 @@ namespace WheresMyPluginsAt
 
         private static void RenderCommitInfo(PluginInfo pluginInfo)
         {
+            string text;
             if (string.IsNullOrEmpty(pluginInfo.LatestCommit))
             {
-                ImGui.Text("No commit information");
+                text = "No commit information";
             }
             else if (pluginInfo.CurrentCommit == pluginInfo.LatestCommit)
             {
-                ImGui.Text($"Currently on latest commit ({pluginInfo.CurrentCommit})");
+                text = $"Currently on latest commit ({pluginInfo.CurrentCommit})";
             }
             else
             {
-                ImGui.Text($"{pluginInfo.CurrentCommit} -> {pluginInfo.LatestCommit} ({pluginInfo.BehindAhead})");
+                text = $"{pluginInfo.CurrentCommit} -> {pluginInfo.LatestCommit} '{pluginInfo.LatestCommitMessage}' ({pluginInfo.BehindAhead})";
             }
+
+            if (pluginInfo.UncommittedChangeCount > 0)
+            {
+                text += $" ({pluginInfo.UncommittedChangeCount} uncommitted changes)";
+            }
+
+            ImGui.Text(text);
             ImGui.TableNextColumn();
         }
 
@@ -457,9 +458,9 @@ namespace WheresMyPluginsAt
             try
             {
                 _revertingPlugins[pluginName] = true;
-                consoleLog.LogInfo($"Starting revert for {pluginName}...");
-                await updater.RevertPluginAsync(pluginName);
-                var plugin = updater.GetPluginInfo().FirstOrDefault(p => p.Name == pluginName);
+                _consoleLog.LogInfo($"Starting revert for {pluginName}...");
+                await _updater.RevertPluginAsync(pluginName);
+                var plugin = _updater.GetPluginInfo().FirstOrDefault(p => p.Name == pluginName);
                 if (plugin != null && !string.IsNullOrEmpty(plugin.LastMessage))
                 {
                     var lines = plugin.LastMessage.Split('\n');
@@ -467,17 +468,17 @@ namespace WheresMyPluginsAt
                     {
                         if (!string.IsNullOrWhiteSpace(line))
                         {
-                            consoleLog.LogInfo($"{line.Trim()}");
+                            _consoleLog.LogInfo($"{line.Trim()}");
                         }
                     }
                 }
-                consoleLog.LogSuccess($"Successfully reverted {pluginName}");
+                _consoleLog.LogSuccess($"Successfully reverted {pluginName}");
             }
             catch (Exception e)
             {
                 var errorMsg = $"Error reverting plugin {pluginName}: {e.Message}";
                 DebugWindow.LogError(errorMsg);
-                consoleLog.LogError($"{errorMsg}");
+                _consoleLog.LogError($"{errorMsg}");
             }
             finally
             {
@@ -485,7 +486,7 @@ namespace WheresMyPluginsAt
             }
         }
 
-        private void RenderUpdateButton(PluginInfo pluginInfo)
+        private void RenderActionButtons(PluginInfo pluginInfo)
         {
             if (string.IsNullOrEmpty(pluginInfo.CurrentCommit))
             {
@@ -498,44 +499,35 @@ namespace WheresMyPluginsAt
 
             if (pluginInfo.CurrentCommit != pluginInfo.LatestCommit)
             {
-                if (isUpdating)
+                ImGui.PushStyleColor(ImGuiCol.Button, new System.Numerics.Vector4(0, 0.5f, 0, 1.0f));
+                ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new System.Numerics.Vector4(0, 0.7f, 0, 1.0f));
+                ImGui.PushStyleColor(ImGuiCol.ButtonActive, new System.Numerics.Vector4(0, 0.3f, 0, 1.0f));
+                ImGui.BeginDisabled(isReverting || isUpdating);
+                if (ImGui.Button(isUpdating ? $"Updating...##{pluginInfo.Name}" : $"Update##{pluginInfo.Name}"))
                 {
-                    ImGui.BeginDisabled();
-                    ImGui.Button($"Updating...##{pluginInfo.Name}");
-                    ImGui.EndDisabled();
+                    _ = UpdatePluginAsync(pluginInfo.Name);
                 }
-                else
-                {
-                    ImGui.PushStyleColor(ImGuiCol.Button, new System.Numerics.Vector4(0, 0.5f, 0, 1.0f));
-                    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new System.Numerics.Vector4(0, 0.7f, 0, 1.0f));
-                    ImGui.PushStyleColor(ImGuiCol.ButtonActive, new System.Numerics.Vector4(0, 0.3f, 0, 1.0f));
 
-                    if (ImGui.Button($"Update##{pluginInfo.Name}"))
-                    {
-                        _ = UpdatePluginAsync(pluginInfo.Name);
-                    }
+                ImGui.EndDisabled();
 
-                    ImGui.PopStyleColor(3);
-                }
+                ImGui.PopStyleColor(3);
+                ImGui.SameLine();
             }
-            else
+
+
+            ImGui.BeginDisabled(isReverting || isUpdating);
+            if (ImGui.Button(isReverting ? $"Reverting...##{pluginInfo.Name}" : $"Revert##{pluginInfo.Name}"))
             {
-                if (isReverting)
-                {
-                    ImGui.BeginDisabled();
-                    ImGui.Button($"Reverting...##{pluginInfo.Name}");
-                    ImGui.EndDisabled();
-                }
-                else if (ImGui.Button($"Revert##{pluginInfo.Name}"))
-                {
-                    _ = RevertPluginAsync(pluginInfo.Name);
-                }
-
-                if (ImGui.IsItemHovered())
-                {
-                    ImGui.SetTooltip("Revert to the previous commit (HEAD~1)");
-                }
+                _ = RevertPluginAsync(pluginInfo.Name);
             }
+
+            ImGui.EndDisabled();
+
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip($"Revert to the previous commit {pluginInfo.PreviousCommit ?? "HEAD~1"}");
+            }
+
             ImGui.TableNextColumn();
         }
 
@@ -563,7 +555,7 @@ namespace WheresMyPluginsAt
                 }
                 else
                 {
-                    consoleLog.LogWarning("Please enter a repository URL");
+                    _consoleLog.LogWarning("Please enter a repository URL");
                 }
             }
 
@@ -584,16 +576,16 @@ namespace WheresMyPluginsAt
             try
             {
                 _isCloning = true;
-                consoleLog.LogInfo($"Cloning repository: {repoUrl}");
+                _consoleLog.LogInfo($"Cloning repository: {repoUrl}");
 
-                await updater.CloneRepositoryAsync(repoUrl);
+                await _updater.CloneRepositoryAsync(repoUrl);
 
-                consoleLog.LogSuccess($"Successfully cloned repository");
+                _consoleLog.LogSuccess($"Successfully cloned repository");
                 _repoUrl = string.Empty;
             }
             catch (Exception ex)
             {
-                consoleLog.LogError($"Error cloning repository: {ex.Message}");
+                _consoleLog.LogError($"Error cloning repository: {ex.Message}");
             }
             finally
             {
@@ -601,9 +593,9 @@ namespace WheresMyPluginsAt
             }
         }
 
-        private static readonly System.Text.Json.JsonSerializerOptions _serializerOptions = new()
+        private static readonly System.Text.Json.JsonSerializerOptions SerializerOptions = new()
         {
-            PropertyNameCaseInsensitive = true
+            PropertyNameCaseInsensitive = true,
         };
 
         private async Task LoadRepositoriesAsync()
@@ -620,7 +612,7 @@ namespace WheresMyPluginsAt
 
                 var repoData = System.Text.Json.JsonSerializer.Deserialize<PluginRepositoryData>(
                     response,
-                    _serializerOptions
+                    SerializerOptions
                 );
 
                 _availablePlugins.Clear();
@@ -630,12 +622,12 @@ namespace WheresMyPluginsAt
                 }
 
                 _hasLoadedRepos = true;
-                consoleLog.LogSuccess($"Successfully loaded {_availablePlugins.Count} plugins");
+                _consoleLog.LogSuccess($"Successfully loaded {_availablePlugins.Count} plugins");
             }
             catch (Exception ex)
             {
                 _loadError = $"Error loading plugins: {ex.Message}";
-                consoleLog.LogError(_loadError);
+                _consoleLog.LogError(_loadError);
             }
             finally
             {
@@ -684,7 +676,7 @@ namespace WheresMyPluginsAt
                             ImGuiTableFlags.RowBg |
                             ImGuiTableFlags.Hideable;
 
-            var installedPlugins = updater.GetPluginInfo();
+            var installedPlugins = _updater.GetPluginInfo();
 
             if (_availablePlugins.Count == 0)
             {
@@ -817,13 +809,13 @@ namespace WheresMyPluginsAt
                 {
                     try
                     {
-                        updater.DeletePlugin(_pluginToDelete);
-                        consoleLog.LogSuccess($"Successfully deleted plugin: {_pluginToDelete}");
+                        _updater.DeletePlugin(_pluginToDelete);
+                        _consoleLog.LogSuccess($"Successfully deleted plugin: {_pluginToDelete}");
                         ImGui.CloseCurrentPopup();
                     }
                     catch (Exception ex)
                     {
-                        consoleLog.LogError($"Failed to delete plugin: {ex.Message}");
+                        _consoleLog.LogError($"Failed to delete plugin: {ex.Message}");
                         ImGui.CloseCurrentPopup();
                     }
                 }
@@ -849,15 +841,15 @@ namespace WheresMyPluginsAt
             try
             {
                 _downloadingPlugins[pluginName] = true;
-                consoleLog.LogInfo($"Downloading plugin: {pluginName}");
+                _consoleLog.LogInfo($"Downloading plugin: {pluginName}");
 
-                await updater.CloneRepositoryAsync(cloneUrl);
+                await _updater.CloneRepositoryAsync(cloneUrl);
 
-                consoleLog.LogSuccess($"Successfully downloaded {pluginName}");
+                _consoleLog.LogSuccess($"Successfully downloaded {pluginName}");
             }
             catch (Exception ex)
             {
-                consoleLog.LogError($"Error downloading plugin {pluginName}: {ex.Message}");
+                _consoleLog.LogError($"Error downloading plugin {pluginName}: {ex.Message}");
             }
             finally
             {
@@ -868,7 +860,7 @@ namespace WheresMyPluginsAt
 
         public void Dispose()
         {
-            updater?.Dispose();
+            _updater?.Dispose();
             GC.SuppressFinalize(this);
         }
     }

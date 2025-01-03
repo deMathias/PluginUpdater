@@ -14,7 +14,6 @@ public class WheresMyPluginsAtSettings : ISettings
     }
 
     public ToggleNode Enable { get; set; } = new ToggleNode(true);
-    public bool ShowNotifications { get; set; } = false;
     public bool CheckUpdatesOnStartup { get; set; }
     public bool AutoCheckUpdates { get; set; }
     public int UpdateCheckIntervalMinutes { get; set; } = 60;

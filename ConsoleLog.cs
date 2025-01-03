@@ -17,7 +17,6 @@ namespace WheresMyPluginsAt
     {
         private readonly List<LogEntry> _logEntries = [];
         private readonly object _logLock = new();
-        private readonly NotificationSystem _notificationSystem = new();
 
         public static readonly Vector4
             ColorInfo = new(1.0f, 1.0f, 1.0f, 1.0f),      // White
@@ -33,19 +32,14 @@ namespace WheresMyPluginsAt
             }
         }
 
-        public void AddLogMessage(string title, string message, Vector4 color, NotificationType notificationType)
+        public void AddNotificationMessage(string id, string message, Vector4 color)
         {
             lock (_logLock)
             {
                 _logEntries.Add(new LogEntry(message, color));
             }
 
-
-            _notificationSystem.AddNotification(
-                message: message,
-                title: title,
-                type: notificationType
-            );
+            WheresMyPluginsAt.Instance.PostNotification(new PluginNotification("", id, message));
         }
 
         public void LogInfo(string message) =>
@@ -86,14 +80,6 @@ namespace WheresMyPluginsAt
             }
             ImGui.EndChild();
             ImGui.PopStyleColor();
-        }
-
-        public void RenderNotifications(RectangleF? windowRect = null)
-        {
-            if (windowRect.HasValue)
-            {
-                _notificationSystem.Render(windowRect.Value);
-            }
         }
     }
 }
