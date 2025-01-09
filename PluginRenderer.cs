@@ -385,7 +385,7 @@ namespace PluginUpdater
 
             float tableHeight = Math.Min(totalTableHeight, panelHeight * 0.60f);
 
-            if (!ImGui.BeginTable("##table1", 3, tableFlags, new System.Numerics.Vector2(-1, tableHeight)))
+            if (!ImGui.BeginTable("##table1", 4, tableFlags, new System.Numerics.Vector2(-1, tableHeight)))
                 return;
 
             SetupTableColumns();
@@ -400,7 +400,8 @@ namespace PluginUpdater
         private static void SetupTableColumns()
         {
             ImGui.TableSetupColumn("Plugin", ImGuiTableColumnFlags.WidthStretch);
-            ImGui.TableSetupColumn("Commit", ImGuiTableColumnFlags.WidthStretch, 2.0f);
+            ImGui.TableSetupColumn("Branch", ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn("Commit", ImGuiTableColumnFlags.WidthStretch);
             ImGui.TableSetupColumn("Actions", ImGuiTableColumnFlags.WidthFixed);
         }
 
@@ -412,7 +413,10 @@ namespace PluginUpdater
             {
                 try
                 {
+                    ImGui.TableNextRow();
+                    ImGui.TableNextColumn();
                     RenderPluginName(pluginInfo);
+                    RenderBranchSelector(pluginInfo).Wait();
                     RenderCommitInfo(pluginInfo);
                     RenderActionButtons(pluginInfo);
                 }
@@ -426,6 +430,51 @@ namespace PluginUpdater
         private static void RenderPluginName(PluginInfo pluginInfo)
         {
             ImGui.Text(pluginInfo.Name);
+            ImGui.TableNextColumn();
+        }
+
+        private async Task RenderBranchSelector(PluginInfo pluginInfo)
+        {
+            if (string.IsNullOrEmpty(pluginInfo.CurrentBranch))
+            {
+                ImGui.TableNextColumn();
+                return;
+            }
+
+            ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X - 5);
+            if (ImGui.BeginCombo($"##branch_{pluginInfo.Name}", pluginInfo.SelectedBranch))
+            {
+                foreach (var branch in pluginInfo.AvailableBranches)
+                {
+                    bool isSelected = branch == pluginInfo.SelectedBranch;
+                    if (ImGui.Selectable(branch, isSelected))
+                    {
+                        if (branch != pluginInfo.CurrentBranch)
+                        {
+                            try
+                            {
+                                _consoleLog.LogInfo($"Switching {pluginInfo.Name} to branch {branch}...");
+                                _ = Task.Run(async () =>
+                                {
+                                    await _updater.ChangeBranchAsync(pluginInfo.Name, branch);
+                                    await _updater.UpdateGitInfoAsync();
+                                    _consoleLog.LogSuccess($"Successfully switched {pluginInfo.Name} to branch {branch}");
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                _consoleLog.LogError($"Failed to switch branch: {ex.Message}");
+                            }
+                        }
+                    }
+
+                    if (isSelected)
+                    {
+                        ImGui.SetItemDefaultFocus();
+                    }
+                }
+                ImGui.EndCombo();
+            }
             ImGui.TableNextColumn();
         }
 

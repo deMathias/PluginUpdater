@@ -25,6 +25,9 @@ namespace PluginUpdater
         public string LatestCommitMessage { get; set; }
         public string PreviousCommit { get; set; }
         public int UncommittedChangeCount { get; set; }
+        public List<string> AvailableBranches { get; set; } = new();
+        public string CurrentBranch { get; set; }
+        public string SelectedBranch { get; set; }
     }
 
     public class GitUpdater : IDisposable
@@ -123,6 +126,8 @@ namespace PluginUpdater
 
         private void SetPluginInfo(PluginInfo plugin, Repository repository)
         {
+            SetBranchInfo(plugin, repository);
+            
             plugin.CurrentCommit = repository.Head.Tip.Sha[..7];
             plugin.UncommittedChangeCount = repository.Diff.Compare<TreeChanges>().Count;
             var trackingBranch = repository.Head.TrackedBranch;
@@ -153,6 +158,31 @@ namespace PluginUpdater
             plugin.PreviousCommit = previousCommit != null 
                 ? $"{previousCommit.Sha[..7]} {previousCommit.MessageShort}" 
                 : null;
+        }
+
+        private void SetBranchInfo(PluginInfo plugin, Repository repository)
+        {
+            // Get all remote branches
+            var remoteBranches = repository.Branches
+                .Where(b => b.IsRemote)
+                .Where(b => !b.FriendlyName.EndsWith("/HEAD"))
+                .Select(b => b.FriendlyName.Replace("origin/", ""))
+                .Distinct();
+
+            // Get all local branches
+            var localBranches = repository.Branches
+                .Where(b => !b.IsRemote)
+                .Where(b => b.FriendlyName != "HEAD")
+                .Select(b => b.FriendlyName);
+
+            // Combine and deduplicate branches
+            plugin.AvailableBranches = localBranches
+                .Union(remoteBranches)
+                .OrderBy(b => b)
+                .ToList();
+            
+            plugin.CurrentBranch = repository.Head.FriendlyName;
+            plugin.SelectedBranch = plugin.CurrentBranch;
         }
 
         private async Task UpdateGitInfoInternalAsync(CancellationToken cancellationToken)
@@ -499,5 +529,57 @@ namespace PluginUpdater
                 Password = password,
             };
         };
+
+        public async Task ChangeBranchAsync(string pluginName, string branchName)
+        {
+            var pluginPath = Path.Combine(_pluginFolder, pluginName);
+            
+            await Task.Run(() =>
+            {
+                using var repo = new Repository(pluginPath);
+                Branch branch;
+
+                // Fetch latest changes first
+                var remote = repo.Network.Remotes["origin"];
+                Commands.Fetch(repo, remote.Name, remote.FetchRefSpecs.Select(r => r.Specification), 
+                    new FetchOptions { CredentialsProvider = _credentialsHandler }, null);
+
+                // Try to get local branch first
+                if (repo.Branches[branchName] != null)
+                {
+                    branch = repo.Branches[branchName];
+                }
+                // If local branch doesn't exist, try to create it from remote
+                else if (repo.Branches[$"origin/{branchName}"] != null)
+                {
+                    var remoteBranch = repo.Branches[$"origin/{branchName}"];
+                    branch = repo.CreateBranch(branchName, remoteBranch.Tip);
+                    // Set up tracking
+                    repo.Branches.Update(branch,
+                        b => b.TrackedBranch = remoteBranch.CanonicalName);
+                }
+                else
+                {
+                    throw new Exception($"Branch {branchName} not found locally or remotely");
+                }
+                    
+                Commands.Checkout(repo, branch);
+                
+                // Reset the branch to match its remote tracking branch if it exists
+                var trackingBranch = branch.TrackedBranch;
+                if (trackingBranch != null)
+                {
+                    repo.Reset(ResetMode.Hard, trackingBranch.Tip);
+                }
+                
+                var plugin = _pluginInfo.GetValueOrDefault(pluginName);
+                if (plugin != null)
+                {
+                    SetPluginInfo(plugin, repo);
+                    // Force an update of the plugin info in the dictionary to trigger UI refresh
+                    _pluginInfo[pluginName] = plugin;
+                }
+            });
+        }
     }
 }
